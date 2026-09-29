@@ -41,7 +41,6 @@ jobs:
 
           if [ -z "$WORDS" ]; then
             echo "ERROR: words.json not found inside ZIP"
-            find _extracted -maxdepth 6 -type f | head -100
             exit 1
           fi
 
@@ -66,21 +65,21 @@ jobs:
 
       - name: Verify database
         run: |
-          python3 - <<'PY'
+          python3 -c "
           import json
 
-          path = "app/src/main/assets/words.json"
+          path = 'app/src/main/assets/words.json'
 
-          with open(path, encoding="utf-8") as f:
+          with open(path, encoding='utf-8') as f:
               data = json.load(f)
 
-          assert len(data) == 1000, f"Expected 1000 records, got {len(data)}"
-          assert len(set(x["german"] for x in data)) == 1000
-          assert all(x.get("arabic") for x in data)
-          assert all(x.get("example") for x in data)
+          assert len(data) == 1000, f'Expected 1000 records, got {len(data)}'
+          assert len(set(x['german'] for x in data)) == 1000
+          assert all(x.get('arabic') for x in data)
+          assert all(x.get('example') for x in data)
 
-          print("Database OK:", len(data), "records")
-          PY
+          print('Database OK:', len(data), 'records')
+          "
 
       - name: Fix Kotlin stdlib conflict
         run: |
@@ -95,26 +94,54 @@ jobs:
 
       - name: Fix MainActivity render
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          FILE="app/src/main/java/com/deutscha1/premium/MainActivity.java"
 
-          p = Path("app/src/main/java/com/deutscha1/premium/MainActivity.java")
+          if [ ! -f "$FILE" ]; then
+            echo "ERROR: MainActivity.java not found"
+            exit 1
+          fi
 
-          if not p.exists():
-              raise SystemExit("ERROR: MainActivity.java not found")
+          echo "Fixing render declaration..."
 
-          s = p.read_text(encoding="utf-8")
+          sed -i 's/Runnable render = () -> {/final Runnable[] render = new Runnable[1]; render[0] = () -> {/g' "$FILE"
 
-          old = s
+          sed -i 's/render\.run()/render[0].run()/g' "$FILE"
 
-          s = re.sub(
-              r'(?m)^(\s*)Runnable\s+render\s*=\s*\s*->\s*\{',
-              r'\1final Runnable[] render = new Runnable[1];\n\1render[0] = () -> {',
-              s
-          )
+          echo "Render fix applied."
 
-          s = s.replace("render.run()", "render[0].run()")
+      - name: Verify MainActivity
+        run: |
+          grep -n "render" app/src/main/java/com/deutscha1/premium/MainActivity.java || true
 
-          if s == old:
-              print("Render pattern not changed;
+      - name: Build Debug APK
+        run: |
+          gradle --init-script kotlin-fix.gradle clean assembleDebug --stacktrace
+
+      - name: Locate APK
+        run: |
+          APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK not found"
+            exit 1
+          fi
+
+          echo "APK=$APK" >> "$GITHUB_ENV"
+
+          echo "APK successfully created:"
+          ls -lh "$APK"
+          file "$APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Deutsch-A1-Premium-Final-APK
+          path: ${{ env.APK }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Build completed
+        run: |
+          echo "======================================"
+          echo " Deutsch A1 Premium APK BUILD SUCCESS "
+          echo "======================================"
