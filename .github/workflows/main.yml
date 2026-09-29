@@ -94,6 +94,8 @@ jobs:
 
       - name: Fix MainActivity render
         run: |
+          set -e
+
           FILE="app/src/main/java/com/deutscha1/premium/MainActivity.java"
 
           if [ ! -f "$FILE" ]; then
@@ -101,17 +103,14 @@ jobs:
             exit 1
           fi
 
-          echo "Fixing render declaration..."
+          echo "Fixing MainActivity render..."
 
-          sed -i 's/Runnable render = () -> {/final Runnable[] render = new Runnable[1]; render[0] = () -> {/g' "$FILE"
+          perl -0pi -e 's/\bRunnable\s+render\s*=\s*\(\s*\)\s*->\s*\{/final Runnable[] render = new Runnable[1]; render[0] = () -> {/g' "$FILE"
 
-          sed -i 's/render\.run()/render[0].run()/g' "$FILE"
+          perl -0pi -e 's/render\.run\(\)/render[0].run()/g' "$FILE"
 
-          echo "Render fix applied."
-
-      - name: Verify MainActivity
-        run: |
-          grep -n "render" app/src/main/java/com/deutscha1/premium/MainActivity.java || true
+          echo "Checking render declaration:"
+          grep -n "render" "$FILE"
 
       - name: Build Debug APK
         run: |
