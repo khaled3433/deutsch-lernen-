@@ -3,8 +3,7 @@ name: Deutsch A1 Premium - Build APK
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -15,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -29,93 +28,62 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Find project ZIP
+      - name: Verify database
         run: |
-          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
+          python3 - <<'PY'
+          import json
 
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found."
-            exit 1
-          fi
+          path = "app/src/main/assets/words.json"
 
-          echo "ZIP found: $ZIP_FILE"
-          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
+          with open(path, encoding="utf-8") as f:
+              data = json.load(f)
 
-      - name: Extract Android project
+          assert len(data) == 1000, f"Expected 1000 records, got {len(data)}"
+          assert len(set(x["german"] for x in data)) == 1000
+          assert all(x.get("arabic") for x in data)
+          assert all(x.get("example") for x in data)
+
+          print("Database OK:", len(data), "records")
+          PY
+
+      - name: Fix Kotlin stdlib conflict
         run: |
-          rm -rf AndroidProject
-          mkdir -p AndroidProject
-          unzip -q "$ZIP_FILE" -d AndroidProject
-
-          echo "Extracted files:"
-          find AndroidProject -maxdepth 4 -type f | head -100
-
-      - name: Locate Android project
-        run: |
-          SETTINGS=$(find AndroidProject -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) | head -n 1)
-
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle not found."
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS")
-
-          echo "Project: $PROJECT_DIR"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Verify project
-        run: |
-          if [ ! -d "$PROJECT_DIR/app" ]; then
-            echo "ERROR: app module not found."
-            exit 1
-          fi
-
-          echo "Android project OK."
-
-      - name: Check vocabulary
-        run: |
-          WORDS=$(find "$PROJECT_DIR/app/src/main" -type f -name "words.json" | head -n 1 || true)
-
-          if [ -n "$WORDS" ]; then
-            echo "Vocabulary found:"
-            echo "$WORDS"
-            echo "German entries:"
-            grep -o '"german"' "$WORDS" | wc -l || true
-          else
-            echo "WARNING: words.json not found."
-          fi
+          cat > kotlin-fix.gradle <<'EOF'
+          allprojects {
+              configurations.configureEach {
+                  exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk7"
+                  exclude group: "org.jetbrains.kotlin", module: "kotlin-stdlib-jdk8"
+              }
+          }
+          EOF
 
       - name: Build Debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          gradle clean assembleDebug --stacktrace
+          gradle --init-script kotlin-fix.gradle clean assembleDebug --stacktrace
 
       - name: Locate APK
         run: |
-          APK=$(find "$PROJECT_DIR" -type f -path "*/outputs/apk/debug/*.apk" | head -n 1)
+          APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
+            echo "APK not found"
             exit 1
           fi
 
-          echo "APK found:"
-          echo "$APK"
-          ls -lh "$APK"
-
           echo "APK=$APK" >> "$GITHUB_ENV"
+          ls -lh "$APK"
+          file "$APK"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Deutsch-A1-Premium-APK
+          name: Deutsch-A1-Premium-Final-APK
           path: ${{ env.APK }}
           if-no-files-found: error
           retention-days: 7
 
       - name: Build completed
         run: |
-          echo "================================"
-          echo "DEUTSCH A1 PREMIUM APK SUCCESS"
-          echo "================================"
+          echo "======================================"
+          echo " Deutsch A1 Premium APK BUILD SUCCESS "
+          echo "======================================"
