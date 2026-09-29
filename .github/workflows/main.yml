@@ -41,7 +41,7 @@ jobs:
 
           if [ -z "$WORDS" ]; then
             echo "ERROR: words.json not found inside ZIP"
-            find _extracted -maxdepth 5 -type f | head -100
+            find _extracted -maxdepth 6 -type f | head -100
             exit 1
           fi
 
@@ -93,34 +93,28 @@ jobs:
           }
           EOF
 
-      - name: Build Debug APK
+      - name: Fix MainActivity render
         run: |
-          gradle --init-script kotlin-fix.gradle clean assembleDebug --stacktrace
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-      - name: Locate APK
-        run: |
-          APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          p = Path("app/src/main/java/com/deutscha1/premium/MainActivity.java")
 
-          if [ -z "$APK" ]; then
-            echo "APK not found"
-            exit 1
-          fi
+          if not p.exists():
+              raise SystemExit("ERROR: MainActivity.java not found")
 
-          echo "APK=$APK" >> "$GITHUB_ENV"
+          s = p.read_text(encoding="utf-8")
 
-          ls -lh "$APK"
-          file "$APK"
+          old = s
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Deutsch-A1-Premium-Final-APK
-          path: ${{ env.APK }}
-          if-no-files-found: error
-          retention-days: 7
+          s = re.sub(
+              r'(?m)^(\s*)Runnable\s+render\s*=\s*\s*->\s*\{',
+              r'\1final Runnable[] render = new Runnable[1];\n\1render[0] = () -> {',
+              s
+          )
 
-      - name: Build completed
-        run: |
-          echo "======================================"
-          echo " Deutsch A1 Premium APK BUILD SUCCESS "
-          echo "======================================"
+          s = s.replace("render.run()", "render[0].run()")
+
+          if s == old:
+              print("Render pattern not changed;
